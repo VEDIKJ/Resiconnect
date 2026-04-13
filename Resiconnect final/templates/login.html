@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ResiConnect — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}"/>
+</head>
+<body class="login-page">
+
+<div class="login-wrap">
+  <div class="login-art">
+    <div class="art-grid">
+      {% for i in range(20) %}
+      <div class="art-cell" style="--i: {{ i }}"></div>
+      {% endfor %}
+    </div>
+    <div class="art-content">
+      <div class="logo-big">⬡</div>
+      <h1 class="art-title">Resi<br/><strong>Connect</strong></h1>
+      <p class="art-sub">Residential Security,<br/>Reinvented.</p>
+      <div class="art-features">
+        <div class="feat"><span>⚡</span> Instant QR Passes</div>
+        <div class="feat"><span>🔐</span> Secure Entry Control</div>
+        <div class="feat"><span>📋</span> Full Audit Trail</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="login-form-side">
+    <div class="login-form-box">
+      <h2 class="login-heading">Welcome back</h2>
+      <p class="login-sub">Sign in to your account</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for cat, msg in messages %}
+            <div class="flash flash-{{ cat }}">
+              <span class="flash-icon">{% if cat == 'success' %}✓{% else %}✕{% endif %}</span>
+              {{ msg }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" action="{{ url_for('login') }}" class="form">
+        <div class="form-group">
+          <label for="email">Email address</label>
+          <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email"/>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password"/>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Sign in →</button>
+      </form>
+
+      <div class="demo-creds">
+        <p class="demo-title">Demo accounts</p>
+        <div class="demo-grid">
+          <div class="demo-card" onclick="fillCreds('admin@resiconnect.com','admin123')">
+            <span class="demo-role admin-role">Admin</span>
+            <span class="demo-pass">admin123</span>
+          </div>
+          <div class="demo-card" onclick="fillCreds('member@resiconnect.com','member123')">
+            <span class="demo-role member-role">Member</span>
+            <span class="demo-pass">member123</span>
+          </div>
+          <div class="demo-card" onclick="fillCreds('security@resiconnect.com','security123')">
+            <span class="demo-role security-role">Security</span>
+            <span class="demo-pass">security123</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function fillCreds(email, pass) {
+  document.getElementById('email').value = email;
+  document.getElementById('password').value = pass;
+}
+</script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

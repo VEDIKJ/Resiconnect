@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Scan Result — ResiConnect{% endblock %}
+{% block content %}
+
+<div class="scan-result-page">
+  {% if result == 'valid' %}
+  <div class="result-card result-valid">
+    <div class="result-icon-big">✓</div>
+    <h2 class="result-title">Valid Pass</h2>
+    <p class="result-sub">Guest is authorized to enter</p>
+
+    <div class="result-guest-card">
+      <div class="guest-avatar large">{{ gp.guest_name[0].upper() }}</div>
+      <div class="guest-details">
+        <div class="guest-big-name">{{ gp.guest_name }}</div>
+        {% if gp.guest_phone %}<div>{{ gp.guest_phone }}</div>{% endif %}
+        {% if gp.purpose %}<div class="purpose-chip">{{ gp.purpose }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="result-meta-grid">
+      <div class="r-meta">
+        <span class="meta-label">Visiting</span>
+        <span class="meta-val">{{ gp.member.name }}</span>
+      </div>
+      <div class="r-meta">
+        <span class="meta-label">Flat</span>
+        <span class="meta-val">{{ gp.member.flat_number or '—' }}</span>
+      </div>
+      <div class="r-meta">
+        <span class="meta-label">Valid Until</span>
+        <span class="meta-val">{{ gp.valid_until.strftime('%d %b, %I:%M %p') }}</span>
+      </div>
+    </div>
+
+    <div class="action-btns">
+      <form method="POST" action="{{ url_for('security_action', token=gp.token, action='deny') }}">
+        <button type="submit" class="btn btn-danger btn-lg">✕ Deny Entry</button>
+      </form>
+      <form method="POST" action="{{ url_for('security_action', token=gp.token, action='approve') }}">
+        <button type="submit" class="btn btn-success btn-lg">✓ Approve Entry</button>
+      </form>
+    </div>
+  </div>
+
+  {% elif result == 'approved' %}
+  <div class="result-card result-approved">
+    <div class="result-icon-big check">✓</div>
+    <h2 class="result-title">Entry Already Approved</h2>
+    <p class="result-sub">This pass was already used</p>
+    {% if gp %}
+    <div class="result-info">
+      <strong>{{ gp.guest_name }}</strong> — Approved at {{ gp.scanned_at.strftime('%d %b, %I:%M %p') if gp.scanned_at else 'unknown time' }}
+    </div>
+    {% endif %}
+    <a href="{{ url_for('security_dashboard') }}" class="btn btn-outline">← Back</a>
+  </div>
+
+  {% elif result == 'expired' %}
+  <div class="result-card result-expired">
+    <div class="result-icon-big">⏱</div>
+    <h2 class="result-title">Pass Expired</h2>
+    <p class="result-sub">This guest pass is no longer valid</p>
+    {% if gp %}
+    <div class="result-info"><strong>{{ gp.guest_name }}</strong> · Expired {{ gp.valid_until.strftime('%d %b, %I:%M %p') }}</div>
+    {% endif %}
+    <a href="{{ url_for('security_dashboard') }}" class="btn btn-outline">← Back</a>
+  </div>
+
+  {% elif result == 'denied' %}
+  <div class="result-card result-denied">
+    <div class="result-icon-big">✕</div>
+    <h2 class="result-title">Entry Denied</h2>
+    <p class="result-sub">This pass was denied</p>
+    {% if gp %}<div class="result-info"><strong>{{ gp.guest_name }}</strong></div>{% endif %}
+    <a href="{{ url_for('security_dashboard') }}" class="btn btn-outline">← Back</a>
+  </div>
+
+  {% else %}
+  <div class="result-card result-invalid">
+    <div class="result-icon-big">⚠</div>
+    <h2 class="result-title">Invalid QR Code</h2>
+    <p class="result-sub">{{ message }}</p>
+    <a href="{{ url_for('security_dashboard') }}" class="btn btn-outline">← Back</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

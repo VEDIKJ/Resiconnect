@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Guest Pass — {{ gp.guest_name }}{% endblock %}
+{% block content %}
+
+<div class="pass-view-wrap">
+  <div class="pass-ticket {% if gp.status == 'approved' %}ticket-approved{% elif gp.status in ('expired','denied') %}ticket-invalid{% endif %}">
+    <div class="ticket-header">
+      <div class="ticket-brand">⬡ ResiConnect</div>
+      <span class="status-badge {{ gp.status }}">{{ gp.status.upper() }}</span>
+    </div>
+
+    <div class="ticket-guest">
+      <div class="guest-avatar">{{ gp.guest_name[0].upper() }}</div>
+      <div>
+        <div class="guest-big-name">{{ gp.guest_name }}</div>
+        {% if gp.guest_phone %}<div class="guest-phone-num">{{ gp.guest_phone }}</div>{% endif %}
+      </div>
+    </div>
+
+    {% if gp.purpose %}
+    <div class="ticket-purpose">
+      <span class="purpose-label">Purpose</span>
+      <span class="purpose-val">{{ gp.purpose }}</span>
+    </div>
+    {% endif %}
+
+    <div class="ticket-meta-row">
+      <div class="ticket-meta-item">
+        <span class="meta-label">Invited by</span>
+        <span class="meta-val">{{ gp.member.name }}</span>
+      </div>
+      <div class="ticket-meta-item">
+        <span class="meta-label">Flat</span>
+        <span class="meta-val">{{ gp.member.flat_number or '—' }}</span>
+      </div>
+      <div class="ticket-meta-item">
+        <span class="meta-label">Valid Until</span>
+        <span class="meta-val">{{ gp.valid_until.strftime('%d %b %Y') }}</span>
+      </div>
+      <div class="ticket-meta-item">
+        <span class="meta-label">Expires At</span>
+        <span class="meta-val">{{ gp.valid_until.strftime('%I:%M %p') }}</span>
+      </div>
+    </div>
+
+    <div class="ticket-divider">
+      <div class="divider-circle left"></div>
+      <div class="divider-line"></div>
+      <div class="divider-circle right"></div>
+    </div>
+
+    {% if gp.status == 'pending' %}
+    <div class="qr-section">
+      <p class="qr-instruction">Show this QR code at the security cabin</p>
+      <div class="qr-wrapper">
+        <img src="data:image/png;base64,{{ qr_image }}" alt="Guest QR Code" class="qr-img"/>
+      </div>
+      <p class="qr-token">Pass ID: {{ gp.token[:8].upper() }}...</p>
+    </div>
+    {% elif gp.status == 'approved' %}
+    <div class="scan-result-msg approved-msg">
+      <span class="result-icon">✓</span>
+      <span>Entry Approved</span>
+      {% if gp.scanned_at %}<small>at {{ gp.scanned_at.strftime('%d %b, %I:%M %p') }}</small>{% endif %}
+    </div>
+    {% elif gp.status == 'denied' %}
+    <div class="scan-result-msg denied-msg">
+      <span class="result-icon">✕</span>
+      <span>Entry Denied</span>
+    </div>
+    {% elif gp.status == 'expired' %}
+    <div class="scan-result-msg expired-msg">
+      <span class="result-icon">⏱</span>
+      <span>Pass Expired</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="pass-view-actions">
+    {% if session.get('user_role') == 'member' %}
+    <a href="{{ url_for('member_dashboard') }}" class="btn btn-outline">← Back</a>
+    {% if gp.status == 'pending' %}
+    <button onclick="printPass()" class="btn btn-outline">🖨 Print</button>
+    <button onclick="sharePass()" class="btn btn-primary">Share Pass</button>
+    {% endif %}
+    {% elif session.get('user_role') == 'security' and gp.status == 'pending' %}
+    <div class="security-action-row">
+      <form method="POST" action="{{ url_for('security_action', token=gp.token, action='deny') }}">
+        <button type="submit" class="btn btn-danger btn-lg">✕ Deny Entry</button>
+      </form>
+      <form method="POST" action="{{ url_for('security_action', token=gp.token, action='approve') }}">
+        <button type="submit" class="btn btn-success btn-lg">✓ Approve Entry</button>
+      </form>
+    </div>
+    {% else %}
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline">← Back to Dashboard</a>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function sharePass() {
+  if (navigator.share) {
+    navigator.share({
+      title: 'Guest Pass — ResiConnect',
+      text: 'Your guest pass for entry. Show this QR at the security cabin.',
+      url: window.location.href
+    });
+  } else {
+    navigator.clipboard.writeText(window.location.href);
+    alert('Pass link copied to clipboard!');
+  }
+}
+function printPass() { window.print(); }
+</script>
+{% endblock %}

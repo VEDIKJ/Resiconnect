@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}ResiConnect{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}"/>
+</head>
+<body class="role-{{ session.get('user_role', 'guest') }}">
+
+{% if session.get('user_id') %}
+<nav class="navbar">
+  <div class="nav-brand">
+    <span class="brand-icon">⬡</span>
+    <span class="brand-name">Resi<strong>Connect</strong></span>
+  </div>
+  <div class="nav-links">
+    {% if session.get('user_role') == 'admin' %}
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">Overview</a>
+      <a href="{{ url_for('admin_all_passes') }}" class="nav-link {% if request.endpoint == 'admin_all_passes' %}active{% endif %}">All Passes</a>
+      <a href="{{ url_for('notice_board') }}" class="nav-link {% if request.endpoint == 'notice_board' %}active{% endif %}">📋 Notice Board</a>
+    {% elif session.get('user_role') == 'member' %}
+      <a href="{{ url_for('member_dashboard') }}" class="nav-link {% if request.endpoint == 'member_dashboard' %}active{% endif %}">My Passes</a>
+      <a href="{{ url_for('notice_board') }}" class="nav-link {% if request.endpoint == 'notice_board' %}active{% endif %}">📋 Notice Board</a>
+    {% elif session.get('user_role') == 'security' %}
+      <a href="{{ url_for('security_dashboard') }}" class="nav-link {% if request.endpoint == 'security_dashboard' %}active{% endif %}">Scan Station</a>
+      <a href="{{ url_for('notice_board') }}" class="nav-link {% if request.endpoint == 'notice_board' %}active{% endif %}">📋 Notice Board</a>
+    {% endif %}
+  </div>
+  <div class="nav-user">
+    <span class="user-badge role-{{ session.get('user_role') }}">{{ session.get('user_role', '').upper() }}</span>
+    <span class="user-name">{{ session.get('user_name', '') }}</span>
+    <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
+  </div>
+</nav>
+{% endif %}
+
+<main class="main-content">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-container">
+        {% for cat, msg in messages %}
+          <div class="flash flash-{{ cat }}">
+            <span class="flash-icon">{% if cat == 'success' %}✓{% else %}✕{% endif %}</span>
+            {{ msg }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+<div id="noticePopup" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="popupTitle">New Notice</h3>
+      <button onclick="closePopup()" class="modal-close">✕</button>
+    </div>
+    <p id="popupBody"></p>
+  </div>
+</div>
+<script>
+  const USER_ROLE = "{{ session.get('user_role', '') }}";
+</script>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
