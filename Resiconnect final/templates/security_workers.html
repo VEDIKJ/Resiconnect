@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Daily Workers — Security{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Daily Workers</h1>
+    <p class="page-sub">{{ today.strftime('%A, %d %B %Y') }} · {{ workers | length }} expected today</p>
+  </div>
+  <a href="{{ url_for('security_dashboard') }}" class="btn btn-outline">← Scan Station</a>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-num">{{ workers | length }}</div>
+    <div class="stat-label">Expected Today</div>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-num">{{ entered_ids | length }}</div>
+    <div class="stat-label">Entered</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ workers | length - entered_ids | length }}</div>
+    <div class="stat-label">Pending Arrival</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header" style="margin-bottom:1rem;">
+    <h2 class="section-title" style="margin-bottom:0;">Today's Workers</h2>
+    <input type="text" id="workerSearch" placeholder="Search by name, flat, type…" class="filter-input" style="width:220px;" oninput="filterWorkers()"/>
+  </div>
+
+  {% if workers %}
+  <div class="workers-entry-list" id="workersList">
+    {% for w in workers %}
+    {% set has_entered = w.id in entered_ids %}
+    <div class="worker-entry-row {% if has_entered %}we-done{% endif %}" data-search="{{ w.name.lower() }} {{ w.work_type.lower() }} {{ w.member.flat_number or '' }} {{ w.member.name.lower() }}">
+
+      <div class="we-photo-wrap">
+        {% if w.photo_data %}
+          <img src="{{ w.photo_data }}" class="we-photo" alt="{{ w.name }}"/>
+        {% else %}
+          <div class="we-photo-init">{{ w.name[0].upper() }}</div>
+        {% endif %}
+      </div>
+
+      <div class="we-info">
+        <div class="we-name">{{ w.name }}</div>
+        <div class="we-meta">
+          <span class="worker-type-badge">{{ w.work_type }}</span>
+          <span>Flat {{ w.member.flat_number or '—' }} · {{ w.member.name }}</span>
+          {% if w.phone %}<span>📞 {{ w.phone }}</span>{% endif %}
+        </div>
+        <div class="we-schedule-row">
+          {% for d in range(1,8) %}
+          <span class="day-chip {% if d|string in w.allowed_days %}day-on{% else %}day-off{% endif %}">{{ day_names[d] }}</span>
+          {% endfor %}
+          <span class="we-time">⏰ {{ w.entry_start }}–{{ w.entry_end }}</span>
+        </div>
+      </div>
+
+      <div class="we-action">
+        {% if has_entered %}
+          <span class="status-badge approved">✓ Entered</span>
+        {% else %}
+          <form method="POST" action="{{ url_for('worker_entry', wid=w.id, action='enter') }}" style="display:inline">
+            <button class="btn btn-success">✓ Allow Entry</button>
+          </form>
+          <form method="POST" action="{{ url_for('worker_entry', wid=w.id, action='deny') }}" style="display:inline;margin-top:0.4rem;">
+            <button class="btn btn-danger btn-sm">✕ Deny</button>
+          </form>
+        {% endif %}
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🧹</div>
+    <p>No daily workers are scheduled for today.</p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function filterWorkers() {
+  const q = document.getElementById('workerSearch').value.toLowerCase();
+  document.querySelectorAll('.worker-entry-row').forEach(row => {
+    row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+</script>
+
+{% endblock %}

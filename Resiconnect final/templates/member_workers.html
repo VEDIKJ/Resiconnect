@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}Daily Workers — ResiConnect{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Daily Workers</h1>
+    <p class="page-sub">Flat {{ user.flat_number }} · {{ user.name }}</p>
+  </div>
+  <div style="display:flex;gap:0.75rem;">
+    <a href="{{ url_for('member_dashboard') }}" class="btn btn-outline">← Passes</a>
+    <button class="btn btn-primary" onclick="openModal('addWorkerModal')">+ Add Worker</button>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-num">{{ workers | length }}</div>
+    <div class="stat-label">Total Workers</div>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-num">{{ workers | selectattr('is_active') | list | length }}</div>
+    <div class="stat-label">Active</div>
+  </div>
+</div>
+
+<!-- WORKERS GRID -->
+<div class="section">
+  <h2 class="section-title">Registered Workers</h2>
+  {% if workers %}
+  <div class="workers-grid">
+    {% for w in workers %}
+    <div class="worker-card {% if not w.is_active %}worker-inactive{% endif %}">
+
+      <div class="worker-card-top">
+        {% if w.photo_data %}
+          <img src="{{ w.photo_data }}" class="worker-photo" alt="{{ w.name }}"/>
+        {% else %}
+          <div class="worker-photo-placeholder">{{ w.name[0].upper() }}</div>
+        {% endif %}
+        <div class="worker-info">
+          <div class="worker-name">{{ w.name }}</div>
+          <div class="worker-type-badge">{{ w.work_type }}</div>
+          {% if w.phone %}<div class="worker-meta">📞 {{ w.phone }}</div>{% endif %}
+        </div>
+        <span class="status-badge {% if w.is_active %}pending{% else %}expired{% endif %}">
+          {{ 'Active' if w.is_active else 'Paused' }}
+        </span>
+      </div>
+
+      <div class="worker-schedule">
+        <div class="schedule-days">
+          {% for d in range(1,8) %}
+          <span class="day-chip {% if d|string in w.allowed_days %}day-on{% else %}day-off{% endif %}">
+            {{ day_names[d] }}
+          </span>
+          {% endfor %}
+        </div>
+        <div class="worker-meta" style="margin-top:0.4rem;">⏰ {{ w.entry_start }} – {{ w.entry_end }}</div>
+      </div>
+
+      <!-- Entry history summary -->
+      {% set entry_count = w.entries.count() %}
+      {% if entry_count > 0 %}
+      <div class="worker-meta" style="margin-top:0.5rem;">📋 {{ entry_count }} entries logged</div>
+      {% endif %}
+
+      <div class="worker-actions">
+        <form method="POST" action="{{ url_for('toggle_daily_worker', wid=w.id) }}" style="display:inline">
+          <button class="btn btn-xs {% if w.is_active %}btn-outline{% else %}btn-primary{% endif %}">
+            {{ 'Pause' if w.is_active else 'Activate' }}
+          </button>
+        </form>
+        <form method="POST" action="{{ url_for('delete_daily_worker', wid=w.id) }}" style="display:inline"
+              onsubmit="return confirm('Remove {{ w.name }}? This cannot be undone.')">
+          <button class="btn btn-xs btn-danger">Remove</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🧹</div>
+    <p>No daily workers registered yet.<br/>Add your maid, cook, driver etc. so they can enter without a pass every day.</p>
+    <button class="btn btn-primary" style="margin-top:1rem;" onclick="openModal('addWorkerModal')">+ Add First Worker</button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ADD WORKER MODAL -->
+<div class="modal-overlay" id="addWorkerModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Register Daily Worker</h3>
+      <button class="modal-close" onclick="closeModal('addWorkerModal')">✕</button>
+    </div>
+    <form method="POST" action="{{ url_for('add_daily_worker') }}" class="form" id="addWorkerForm">
+
+      <div style="display:flex;gap:1.5rem;align-items:flex-start;">
+
+        <!-- Photo capture -->
+        <div style="flex:0 0 200px;display:flex;flex-direction:column;gap:0.75rem;">
+          <label style="font-size:0.83rem;color:var(--text2);">Worker Photo</label>
+          <div id="wkCameraWrap" style="width:200px;height:180px;background:var(--bg4);border-radius:10px;overflow:hidden;border:2px dashed var(--border2);position:relative;">
+            <video id="wkVideo" autoplay playsinline style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+            <img id="wkPreview" style="display:none;width:100%;height:100%;object-fit:cover;position:absolute;inset:0;" alt="Worker photo"/>
+            <div id="wkCamErr" style="display:none;align-items:center;justify-content:center;flex-direction:column;gap:0.4rem;position:absolute;inset:0;background:var(--bg4);font-size:0.78rem;color:var(--text2);text-align:center;padding:0.5rem;">
+              <span style="font-size:1.5rem;">📷</span>
+              Camera unavailable
+            </div>
+          </div>
+          <input type="hidden" name="photo_data" id="wkPhotoData"/>
+          <div style="display:flex;gap:0.5rem;">
+            <button type="button" id="wkCaptureBtn" class="btn btn-outline" style="flex:1;font-size:0.8rem;" onclick="wkCapture()">📷 Capture</button>
+            <button type="button" id="wkRetakeBtn" class="btn btn-outline" style="flex:1;font-size:0.8rem;display:none;" onclick="wkRetake()">↺ Retake</button>
+          </div>
+          <label class="btn btn-outline" style="font-size:0.78rem;text-align:center;cursor:pointer;">
+            📁 Upload
+            <input type="file" accept="image/*" style="display:none;" onchange="wkUpload(this)"/>
+          </label>
+        </div>
+
+        <!-- Details -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:0.85rem;min-width:0;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Full Name *</label>
+              <input type="text" name="name" placeholder="e.g. Sunita Devi" required/>
+            </div>
+            <div class="form-group">
+              <label>Work Type *</label>
+              <select name="work_type" required>
+                <option value="">— Select —</option>
+                <option value="Maid">🧹 Maid</option>
+                <option value="Cook">👨‍🍳 Cook</option>
+                <option value="Driver">🚗 Driver</option>
+                <option value="Watchman">👮 Watchman</option>
+                <option value="Gardener">🌿 Gardener</option>
+                <option value="Milkman">🥛 Milkman</option>
+                <option value="Newspaper">📰 Newspaper</option>
+                <option value="Other">📦 Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input type="tel" name="phone" placeholder="+91 98765 43210"/>
+          </div>
+
+          <div class="form-group">
+            <label>Allowed Days</label>
+            <div class="day-picker">
+              {% for d in range(1,8) %}
+              <label class="day-toggle">
+                <input type="checkbox" name="allowed_days" value="{{ d }}" checked/>
+                <span class="day-toggle-label">{{ day_names[d] }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Entry From</label>
+              <input type="time" name="entry_start" value="06:00"/>
+            </div>
+            <div class="form-group">
+              <label>Entry Until</label>
+              <input type="time" name="entry_end" value="20:00"/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="margin-top:1.5rem;">
+        <button type="button" class="btn btn-outline" onclick="closeModal('addWorkerModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Register Worker →</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+let wkStream = null;
+
+function startWkCamera() {
+  const video = document.getElementById('wkVideo');
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+    .then(stream => {
+      wkStream = stream;
+      video.srcObject = stream;
+      video.play();
+    })
+    .catch(() => {
+      video.style.display = 'none';
+      document.getElementById('wkCamErr').style.display = 'flex';
+    });
+}
+
+function stopWkCamera() {
+  if (wkStream) { wkStream.getTracks().forEach(t => t.stop()); wkStream = null; }
+}
+
+function wkCapture() {
+  const video = document.getElementById('wkVideo');
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 200;
+  canvas.height = video.videoHeight || 180;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const data = canvas.toDataURL('image/jpeg', 0.8);
+  document.getElementById('wkPhotoData').value = data;
+  document.getElementById('wkPreview').src = data;
+  document.getElementById('wkPreview').style.display = 'block';
+  video.style.display = 'none';
+  document.getElementById('wkCaptureBtn').style.display = 'none';
+  document.getElementById('wkRetakeBtn').style.display = 'inline-flex';
+  stopWkCamera();
+}
+
+function wkRetake() {
+  document.getElementById('wkPhotoData').value = '';
+  document.getElementById('wkPreview').style.display = 'none';
+  document.getElementById('wkVideo').style.display = 'block';
+  document.getElementById('wkCaptureBtn').style.display = 'inline-flex';
+  document.getElementById('wkRetakeBtn').style.display = 'none';
+  startWkCamera();
+}
+
+function wkUpload(input) {
+  if (!input.files[0]) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('wkPhotoData').value = e.target.result;
+    document.getElementById('wkPreview').src = e.target.result;
+    document.getElementById('wkPreview').style.display = 'block';
+    document.getElementById('wkVideo').style.display = 'none';
+    document.getElementById('wkCamErr').style.display = 'none';
+    document.getElementById('wkCaptureBtn').style.display = 'none';
+    document.getElementById('wkRetakeBtn').style.display = 'inline-flex';
+    stopWkCamera();
+  };
+  reader.readAsDataURL(input.files[0]);
+}
+
+// Start camera when modal opens
+document.getElementById('addWorkerModal').addEventListener('click', function(e) {
+  if (e.target === this && !wkStream) return;
+});
+
+// Open camera when modal is opened
+const origOpen = window.openModal;
+window.openModal = function(id) {
+  origOpen(id);
+  if (id === 'addWorkerModal') {
+    document.getElementById('wkVideo').style.display = 'block';
+    document.getElementById('wkPreview').style.display = 'none';
+    document.getElementById('wkCaptureBtn').style.display = 'inline-flex';
+    document.getElementById('wkRetakeBtn').style.display = 'none';
+    document.getElementById('wkPhotoData').value = '';
+    startWkCamera();
+  }
+};
+
+const origClose = window.closeModal;
+window.closeModal = function(id) {
+  origClose(id);
+  if (id === 'addWorkerModal') stopWkCamera();
+};
+</script>
+
+{% endblock %}

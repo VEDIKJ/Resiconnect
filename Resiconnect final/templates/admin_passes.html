@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}All Passes — ResiConnect{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">All Guest Passes</h1>
+    <p class="page-sub">{{ passes | length }} total passes</p>
+  </div>
+  <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline">← Back</a>
+</div>
+
+<div class="filter-bar">
+  <input type="text" id="filterInput" placeholder="Search guest, member, flat..." class="filter-input" oninput="filterPasses()"/>
+  <select id="filterStatus" onchange="filterPasses()" class="filter-select">
+    <option value="">All Status</option>
+    <option value="pending">Pending</option>
+    <option value="approved">Approved</option>
+    <option value="denied">Denied</option>
+    <option value="expired">Expired</option>
+  </select>
+</div>
+
+<div class="section">
+  <div class="passes-table-wrap">
+    <table class="passes-table" id="passesTable">
+      <thead>
+        <tr>
+          <th>Guest</th>
+          <th>Invited By</th>
+          <th>Flat</th>
+          <th>Purpose</th>
+          <th>Status</th>
+          <th>Valid Until</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in passes %}
+        <tr class="pass-row" data-search="{{ p.guest_name.lower() }} {{ p.member.name.lower() }} {{ p.member.flat_number or '' }}" data-status="{{ p.status }}">
+          <td>
+            <div class="td-guest">
+              <div class="pass-guest-init sm">{{ p.guest_name[0].upper() }}</div>
+              <div>
+                <div>{{ p.guest_name }}</div>
+                {% if p.guest_phone %}<div class="td-sub">{{ p.guest_phone }}</div>{% endif %}
+              </div>
+            </div>
+          </td>
+          <td>{{ p.member.name }}</td>
+          <td>{{ p.member.flat_number or '—' }}</td>
+          <td>{{ p.purpose or '—' }}</td>
+          <td><span class="status-badge {{ p.status }}">{{ p.status }}</span></td>
+          <td>{{ p.valid_until.strftime('%d %b %Y, %I:%M %p') }}</td>
+          <td>{{ p.created_at.strftime('%d %b %Y') }}</td>
+          <td><a href="{{ url_for('view_pass', token=p.token) }}" class="btn btn-xs btn-outline">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function filterPasses() {
+  const search = document.getElementById('filterInput').value.toLowerCase();
+  const status = document.getElementById('filterStatus').value;
+  document.querySelectorAll('.pass-row').forEach(row => {
+    const matchSearch = !search || row.dataset.search.includes(search);
+    const matchStatus = !status || row.dataset.status === status;
+    row.style.display = (matchSearch && matchStatus) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

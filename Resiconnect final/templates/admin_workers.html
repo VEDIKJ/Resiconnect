@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Daily Workers — Admin{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Daily Workers</h1>
+    <p class="page-sub">All registered workers across the society</p>
+  </div>
+  <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline">← Dashboard</a>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-num">{{ workers | length }}</div>
+    <div class="stat-label">Total Registered</div>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-num">{{ workers | selectattr('is_active') | list | length }}</div>
+    <div class="stat-label">Active</div>
+  </div>
+  <div class="stat-card accent-blue">
+    <div class="stat-num">{{ entered_today | length }}</div>
+    <div class="stat-label">Entered Today</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header" style="margin-bottom:1rem;">
+    <h2 class="section-title" style="margin-bottom:0;">All Workers</h2>
+    <div style="display:flex;gap:0.75rem;">
+      <input type="text" id="adminWorkerSearch" placeholder="Search name, flat, type…" class="filter-input" style="width:220px;" oninput="filterAdminWorkers()"/>
+      <select id="adminWorkerStatus" class="filter-select" onchange="filterAdminWorkers()">
+        <option value="">All Status</option>
+        <option value="active">Active</option>
+        <option value="inactive">Paused</option>
+      </select>
+    </div>
+  </div>
+
+  {% if workers %}
+  <div class="passes-table-wrap">
+    <table class="passes-table" id="adminWorkersTable">
+      <thead>
+        <tr>
+          <th>Worker</th>
+          <th>Type</th>
+          <th>Flat / Member</th>
+          <th>Allowed Days</th>
+          <th>Hours</th>
+          <th>Status</th>
+          <th>Today</th>
+          <th>Total Entries</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in workers %}
+        <tr class="pass-row" data-search="{{ w.name.lower() }} {{ w.work_type.lower() }} {{ w.member.flat_number or '' }} {{ w.member.name.lower() }}" data-status="{{ 'active' if w.is_active else 'inactive' }}">
+          <td>
+            <div style="display:flex;align-items:center;gap:0.65rem;">
+              {% if w.photo_data %}
+                <img src="{{ w.photo_data }}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:1px solid var(--border2);"/>
+              {% else %}
+                <div style="width:36px;height:36px;border-radius:50%;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;color:var(--text2);">{{ w.name[0].upper() }}</div>
+              {% endif %}
+              <div>
+                <div style="font-weight:600;">{{ w.name }}</div>
+                {% if w.phone %}<div style="font-size:0.76rem;color:var(--text2);">{{ w.phone }}</div>{% endif %}
+              </div>
+            </div>
+          </td>
+          <td><span class="worker-type-badge">{{ w.work_type }}</span></td>
+          <td>
+            <div>{{ w.member.name }}</div>
+            <div style="font-size:0.78rem;color:var(--text2);">Flat {{ w.member.flat_number or '—' }}</div>
+          </td>
+          <td>
+            <div class="schedule-days" style="flex-wrap:nowrap;">
+              {% for d in range(1,8) %}
+              <span class="day-chip {% if d|string in w.allowed_days %}day-on{% else %}day-off{% endif %}" style="font-size:0.65rem;padding:0.1rem 0.35rem;">{{ day_names[d] }}</span>
+              {% endfor %}
+            </div>
+          </td>
+          <td style="font-size:0.82rem;color:var(--text2);">{{ w.entry_start }}–{{ w.entry_end }}</td>
+          <td><span class="status-badge {% if w.is_active %}pending{% else %}expired{% endif %}">{{ 'Active' if w.is_active else 'Paused' }}</span></td>
+          <td>
+            {% if w.id in entered_today %}
+              <span class="status-badge approved">✓ Entered</span>
+            {% else %}
+              <span style="color:var(--text3);font-size:0.8rem;">—</span>
+            {% endif %}
+          </td>
+          <td style="font-weight:600;">{{ w.entries.count() }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🧹</div>
+    <p>No daily workers registered in the society yet.</p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function filterAdminWorkers() {
+  const q = document.getElementById('adminWorkerSearch').value.toLowerCase();
+  const s = document.getElementById('adminWorkerStatus').value;
+  document.querySelectorAll('.pass-row').forEach(row => {
+    const matchQ = !q || row.dataset.search.includes(q);
+    const matchS = !s || row.dataset.status === s;
+    row.style.display = matchQ && matchS ? '' : 'none';
+  });
+}
+</script>
+
+{% endblock %}

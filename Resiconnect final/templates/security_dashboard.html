@@ -1,0 +1,627 @@
+{% extends "base.html" %}
+{% block title %}Security Dashboard — ResiConnect{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Scan Station</h1>
+    <p class="page-sub">{{ user.name }} · Security</p>
+  </div>
+  <div style="display:flex;gap:0.75rem;">
+    <button class="btn btn-outline" onclick="openWalkIn()">🚶 Walk-in Guest</button>
+    <button class="btn btn-primary" onclick="openScanner()">📷 Scan QR</button>
+  </div>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-num">{{ today_scans }}</div>
+    <div class="stat-label">Today's Scans</div>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-num">{{ approved }}</div>
+    <div class="stat-label">Approved</div>
+  </div>
+  <div class="stat-card accent-red">
+    <div class="stat-num">{{ denied }}</div>
+    <div class="stat-label">Denied</div>
+  </div>
+  {% if walkin_pending > 0 %}
+  <div class="stat-card accent-yellow">
+    <div class="stat-num">{{ walkin_pending }}</div>
+    <div class="stat-label">Walk-ins Pending</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- MANUAL TOKEN LOOKUP -->
+<div class="section">
+  <h2 class="section-title">Manual Lookup</h2>
+  <div class="lookup-box">
+    <input type="text" id="manualToken" placeholder="Enter pass token or scan URL..." class="lookup-input"/>
+    <button class="btn btn-primary" onclick="lookupToken()">Look up</button>
+  </div>
+</div>
+
+<!-- CAMERA SCANNER -->
+<div class="scanner-overlay" id="scannerOverlay" style="display:none">
+  <div class="scanner-box">
+    <div class="scanner-header">
+      <h3>Scan QR Code</h3>
+      <button onclick="closeScanner()" class="modal-close">✕</button>
+    </div>
+    <div class="scanner-video-wrap">
+      <video id="scannerVideo" autoplay playsinline></video>
+      <div class="scanner-frame"></div>
+    </div>
+    <p class="scanner-hint">Point camera at guest's QR code</p>
+    <div id="scannerResult" class="scanner-result" style="display:none"></div>
+  </div>
+</div>
+
+<!-- RECENT ACTIVITY — QR SCANS + WALK-INS -->
+<div class="section">
+  <div class="section-header" style="margin-bottom:0;">
+    <h2 class="section-title" style="margin-bottom:0;">Recent Activity</h2>
+    <div class="activity-tabs">
+      <button class="act-tab active" id="tabQR" onclick="switchTab('qr')">QR Scans</button>
+      <button class="act-tab" id="tabWalkIn" onclick="switchTab('walkin')">
+        Walk-ins
+        {% if recent_walkins %}<span class="act-tab-badge">{{ recent_walkins | length }}</span>{% endif %}
+      </button>
+    </div>
+  </div>
+
+  <!-- QR SCANS PANEL -->
+  <div id="panelQR" class="activity-panel">
+    {% if recent %}
+    <div class="scan-list">
+      {% for p in recent %}
+      <div class="scan-row status-{{ p.status }}">
+        <div class="scan-init">{{ p.guest_name[0].upper() }}</div>
+        <div class="scan-info">
+          <div class="scan-name">{{ p.guest_name }}</div>
+          <div class="scan-meta">
+            Flat {{ p.member.flat_number or '—' }} · {{ p.member.name }}
+            {% if p.purpose %} · {{ p.purpose }}{% endif %}
+          </div>
+        </div>
+        <div class="scan-right">
+          <span class="status-badge {{ p.status }}">{{ p.status }}</span>
+          {% if p.scanned_at %}
+          <span class="scan-time">{{ p.scanned_at.strftime('%I:%M %p') }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">📷</div>
+      <p>No QR scans yet today.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- WALK-INS PANEL -->
+  <div id="panelWalkIn" class="activity-panel" style="display:none;">
+    <div id="walkInFeed">
+      {% if recent_walkins %}
+      <div class="scan-list">
+        {% for w in recent_walkins %}
+        <div class="scan-row wi-feed-row" id="wiFeedRow-{{ w.id }}" data-status="{{ w.status }}">
+          <div class="scan-init wi-init">🚶</div>
+          <div class="scan-info">
+            <div class="scan-name">{{ w.guest_name }}
+              {% if w.guest_phone %}<span class="scan-meta" style="font-size:0.78rem;margin-left:0.4rem;">· {{ w.guest_phone }}</span>{% endif %}
+            </div>
+            <div class="scan-meta">
+              Flat {{ w.member.flat_number or '—' }} · {{ w.member.name }}
+              {% if w.purpose %} · {{ w.purpose }}{% endif %}
+            </div>
+          </div>
+          <div class="scan-right">
+            <span class="status-badge wi-status-badge {{ w.status }}" id="wiBadge-{{ w.id }}">
+              {% if w.status == 'pending' %}⏳ pending{% else %}{{ w.status }}{% endif %}
+            </span>
+            <span class="scan-time">{{ w.created_at.strftime('%I:%M %p') }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state" id="walkInEmpty">
+        <div class="empty-icon">🚶</div>
+        <p>No walk-in requests yet.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+let scannerStream = null;
+let scannerInterval = null;
+
+function openScanner() {
+  document.getElementById('scannerOverlay').style.display = 'flex';
+  startCamera();
+}
+
+function closeScanner() {
+  document.getElementById('scannerOverlay').style.display = 'none';
+  stopCamera();
+}
+
+function startCamera() {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(stream => {
+      scannerStream = stream;
+      const video = document.getElementById('scannerVideo');
+      video.srcObject = stream;
+      video.play();
+      scannerInterval = setInterval(scanFrame, 300);
+    })
+    .catch(err => {
+      document.getElementById('scannerResult').style.display = 'block';
+      document.getElementById('scannerResult').innerHTML = '⚠ Camera not available. Use manual lookup.';
+    });
+}
+
+function stopCamera() {
+  clearInterval(scannerInterval);
+  if (scannerStream) {
+    scannerStream.getTracks().forEach(t => t.stop());
+    scannerStream = null;
+  }
+}
+
+function scanFrame() {
+  const video = document.getElementById('scannerVideo');
+  if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(imageData.data, canvas.width, canvas.height);
+  if (code && code.data) {
+    stopCamera();
+    const url = code.data;
+    const match = url.match(/\/security\/scan\/([a-f0-9]+)/);
+    if (match) {
+      window.location.href = url;
+    } else {
+      document.getElementById('scannerResult').style.display = 'block';
+      document.getElementById('scannerResult').innerHTML = '⚠ Invalid QR code.';
+    }
+  }
+}
+
+function lookupToken() {
+  const val = document.getElementById('manualToken').value.trim();
+  if (!val) return;
+  const match = val.match(/\/security\/scan\/([a-f0-9]+)/) || val.match(/([a-f0-9]{32,})/);
+  if (match) {
+    window.location.href = '/security/scan/' + match[1];
+  } else {
+    alert('Invalid token format.');
+  }
+}
+
+document.getElementById('manualToken').addEventListener('keydown', e => {
+  if (e.key === 'Enter') lookupToken();
+});
+
+// ── WALK-IN GUEST LOGIC ──────────────────────────────
+
+let walkInStream = null;
+let capturedPhoto = null;
+let walkInToken = null;
+let walkInPollInterval = null;
+
+async function openWalkIn() {
+  document.getElementById('walkInOverlay').style.display = 'flex';
+  capturedPhoto = null;
+  walkInToken = null;
+  document.getElementById('wiStep1').style.display = 'block';
+  document.getElementById('wiStep2').style.display = 'none';
+  document.getElementById('wiStep3').style.display = 'none';
+  document.getElementById('wiCaptureBtn').style.display = 'inline-flex';
+  document.getElementById('wiRetakeBtn').style.display = 'none';
+  document.getElementById('wiPreview').style.display = 'none';
+  document.getElementById('wiVideo').style.display = 'block';
+  document.getElementById('wiCameraError').style.display = 'none';
+
+  // Reset form fields manually (no form tag)
+  document.getElementById('wiGuestName').value = '';
+  document.getElementById('wiGuestPhone').value = '';
+  document.getElementById('wiPurpose').value = '';
+
+  // Load members
+  const res = await fetch('/api/members');
+  const members = await res.json();
+  const sel = document.getElementById('wiMember');
+  sel.innerHTML = '<option value="">— Select Flat / Resident —</option>';
+  members.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = `Flat ${m.flat_number} · ${m.name}`;
+    sel.appendChild(opt);
+  });
+
+  startWalkInCamera();
+}
+
+function closeWalkIn() {
+  document.getElementById('walkInOverlay').style.display = 'none';
+  stopWalkInCamera();
+  clearInterval(walkInPollInterval);
+}
+
+function startWalkInCamera() {
+  const video = document.getElementById('wiVideo');
+  video.style.display = 'block';
+  document.getElementById('wiCameraError').style.display = 'none';
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+    .then(stream => {
+      walkInStream = stream;
+      video.srcObject = stream;
+      video.play();
+    })
+    .catch(err => {
+      console.error('Camera error:', err.name, err.message);
+      video.style.display = 'none';
+      const errEl = document.getElementById('wiCameraError');
+      errEl.style.display = 'flex';
+      document.getElementById('wiCameraErrorMsg').textContent = err.name === 'NotAllowedError'
+        ? 'Camera permission denied. Use file upload below.'
+        : 'Camera unavailable. Use file upload below.';
+    });
+}
+
+function loadUploadedPhoto(input) {
+  if (!input.files || !input.files[0]) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    capturedPhoto = e.target.result;
+    const preview = document.getElementById('wiPreview');
+    preview.src = capturedPhoto;
+    preview.style.display = 'block';
+    document.getElementById('wiCameraError').style.display = 'none';
+    document.getElementById('wiCaptureBtn').style.display = 'none';
+    document.getElementById('wiRetakeBtn').style.display = 'inline-flex';
+  };
+  reader.readAsDataURL(input.files[0]);
+}
+
+function stopWalkInCamera() {
+  if (walkInStream) {
+    walkInStream.getTracks().forEach(t => t.stop());
+    walkInStream = null;
+  }
+}
+
+function capturePhoto() {
+  const video = document.getElementById('wiVideo');
+  const canvas = document.getElementById('wiCanvas');
+  canvas.width = video.videoWidth || 480;
+  canvas.height = video.videoHeight || 360;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  capturedPhoto = canvas.toDataURL('image/jpeg', 0.8);
+  const preview = document.getElementById('wiPreview');
+  preview.src = capturedPhoto;
+  preview.style.display = 'block';
+  video.style.display = 'none';
+  document.getElementById('wiCaptureBtn').style.display = 'none';
+  document.getElementById('wiRetakeBtn').style.display = 'inline-flex';
+}
+
+function retakePhoto() {
+  capturedPhoto = null;
+  const preview = document.getElementById('wiPreview');
+  preview.style.display = 'none';
+  preview.src = '';
+  document.getElementById('wiFileInput').value = '';
+  document.getElementById('wiCaptureBtn').style.display = 'inline-flex';
+  document.getElementById('wiRetakeBtn').style.display = 'none';
+  // Re-show video if camera was working, else show error panel
+  if (walkInStream) {
+    document.getElementById('wiVideo').style.display = 'block';
+  } else {
+    document.getElementById('wiCameraError').style.display = 'flex';
+  }
+}
+
+async function submitWalkIn() {
+  const guestName = document.getElementById('wiGuestName').value.trim();
+  const memberId = document.getElementById('wiMember').value;
+  const guestPhone = document.getElementById('wiGuestPhone').value.trim();
+  const purpose = document.getElementById('wiPurpose').value.trim();
+
+  if (!guestName) { alert('Please enter guest name.'); return; }
+  if (!memberId) { alert('Please select the flat / resident to visit.'); return; }
+  if (!capturedPhoto) { alert('Please capture a photo of the guest first.'); return; }
+
+  document.getElementById('wiSubmitBtn').disabled = true;
+  document.getElementById('wiSubmitBtn').textContent = 'Sending...';
+
+  try {
+    const res = await fetch('/security/walkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        guest_name: guestName,
+        member_id: parseInt(memberId),
+        guest_phone: guestPhone,
+        purpose: purpose,
+        photo_data: capturedPhoto
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) { alert('Error: ' + data.error); return; }
+    walkInToken = data.token;
+
+    // Move to step 2 (waiting)
+    document.getElementById('wiStep1').style.display = 'none';
+    document.getElementById('wiStep2').style.display = 'block';
+    stopWalkInCamera();
+    startWalkInPolling();
+  } catch (e) {
+    alert('Network error. Please try again.');
+  } finally {
+    document.getElementById('wiSubmitBtn').disabled = false;
+    document.getElementById('wiSubmitBtn').textContent = 'Notify Member →';
+  }
+}
+
+let wiCountdown = 300;
+function startWalkInPolling() {
+  wiCountdown = 300;
+  updateCountdown();
+  walkInPollInterval = setInterval(async () => {
+    wiCountdown--;
+    updateCountdown();
+    if (wiCountdown <= 0) {
+      clearInterval(walkInPollInterval);
+      showWalkInResult('expired');
+      return;
+    }
+    try {
+      const res = await fetch('/api/walkin/status/' + walkInToken);
+      const data = await res.json();
+      if (data.status !== 'pending') {
+        clearInterval(walkInPollInterval);
+        showWalkInResult(data.status, data);
+      }
+    } catch(e) {}
+  }, 1000);
+}
+
+function updateCountdown() {
+  const mins = Math.floor(wiCountdown / 60);
+  const secs = wiCountdown % 60;
+  const el = document.getElementById('wiCountdown');
+  if (el) el.textContent = `${mins}:${secs.toString().padStart(2,'0')}`;
+
+  // Progress ring
+  const pct = wiCountdown / 300;
+  const ring = document.getElementById('wiProgressRing');
+  if (ring) {
+    const r = 36, circ = 2 * Math.PI * r;
+    ring.style.strokeDasharray = circ;
+    ring.style.strokeDashoffset = circ * (1 - pct);
+  }
+}
+
+function showWalkInResult(status, data) {
+  document.getElementById('wiStep2').style.display = 'none';
+  document.getElementById('wiStep3').style.display = 'block';
+  const icon = document.getElementById('wiResultIcon');
+  const title = document.getElementById('wiResultTitle');
+  const sub = document.getElementById('wiResultSub');
+
+  if (status === 'approved') {
+    icon.textContent = '✓'; icon.className = 'wi-result-icon wi-approved';
+    title.textContent = 'Entry Approved!';
+    sub.textContent = `${data.member_name} (Flat ${data.flat_number}) has approved the guest.`;
+  } else if (status === 'denied') {
+    icon.textContent = '✕'; icon.className = 'wi-result-icon wi-denied';
+    title.textContent = 'Entry Denied';
+    sub.textContent = 'The resident has denied entry for this guest.';
+  } else {
+    icon.textContent = '⏱'; icon.className = 'wi-result-icon wi-expired';
+    title.textContent = 'Request Timed Out';
+    sub.textContent = 'No response received within 5 minutes. Please contact the resident directly.';
+  }
+
+  // Immediately refresh the walk-in feed so board reflects result
+  refreshWalkInFeed();
+}
+
+// ── ACTIVITY TABS ──
+function switchTab(tab) {
+  const isQR = tab === 'qr';
+  document.getElementById('tabQR').classList.toggle('active', isQR);
+  document.getElementById('tabWalkIn').classList.toggle('active', !isQR);
+  document.getElementById('panelQR').style.display = isQR ? 'block' : 'none';
+  document.getElementById('panelWalkIn').style.display = isQR ? 'none' : 'block';
+}
+
+// ── LIVE WALK-IN FEED ──
+async function refreshWalkInFeed() {
+  try {
+    const res = await fetch('/api/security/walkin-feed');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const walkins = data.walkins;
+    const feed = document.getElementById('walkInFeed');
+
+    if (walkins.length === 0) {
+      feed.innerHTML = `<div class="empty-state" id="walkInEmpty"><div class="empty-icon">🚶</div><p>No walk-in requests yet.</p></div>`;
+      return;
+    }
+
+    // Update existing rows or rebuild list
+    const existingRows = feed.querySelectorAll('.wi-feed-row');
+    const existingIds = new Set([...existingRows].map(r => r.id.replace('wiFeedRow-', '')));
+    const newIds = new Set(walkins.map(w => String(w.id)));
+
+    // If ids match exactly, just update statuses (smooth, no flicker)
+    if ([...existingIds].sort().join() === [...newIds].sort().join()) {
+      walkins.forEach(w => {
+        const badge = document.getElementById(`wiBadge-${w.id}`);
+        const row = document.getElementById(`wiFeedRow-${w.id}`);
+        if (!badge || !row) return;
+        const oldStatus = row.dataset.status;
+        if (oldStatus !== w.status) {
+          row.dataset.status = w.status;
+          row.className = `scan-row wi-feed-row wi-status-change`;
+          badge.className = `status-badge wi-status-badge ${w.status}`;
+          badge.textContent = w.status === 'pending' ? '⏳ pending' : w.status;
+          // Flash animation
+          setTimeout(() => row.classList.remove('wi-status-change'), 1500);
+        }
+      });
+    } else {
+      // Full rebuild for new entries
+      feed.innerHTML = `<div class="scan-list">` + walkins.map(w => `
+        <div class="scan-row wi-feed-row" id="wiFeedRow-${w.id}" data-status="${w.status}">
+          <div class="scan-init wi-init">🚶</div>
+          <div class="scan-info">
+            <div class="scan-name">${w.guest_name}
+              ${w.guest_phone ? `<span class="scan-meta" style="font-size:0.78rem;margin-left:0.4rem;">· ${w.guest_phone}</span>` : ''}
+            </div>
+            <div class="scan-meta">
+              Flat ${w.flat_number} · ${w.member_name}
+              ${w.purpose ? ` · ${w.purpose}` : ''}
+            </div>
+          </div>
+          <div class="scan-right">
+            <span class="status-badge wi-status-badge ${w.status}" id="wiBadge-${w.id}">
+              ${w.status === 'pending' ? '⏳ pending' : w.status}
+            </span>
+            <span class="scan-time">${w.created_at}</span>
+          </div>
+        </div>
+      `).join('') + `</div>`;
+    }
+  } catch(e) {}
+}
+
+// Poll walk-in feed every 4 seconds
+refreshWalkInFeed();
+setInterval(refreshWalkInFeed, 4000);
+</script>
+
+<!-- WALK-IN OVERLAY -->
+<div class="scanner-overlay" id="walkInOverlay" style="display:none">
+  <div class="scanner-box wi-box">
+
+    <!-- STEP 1: Capture + Form -->
+    <div id="wiStep1">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;">
+        <h3 style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;">🚶 Unregistered Walk-in Guest</h3>
+        <button onclick="closeWalkIn()" class="modal-close">✕</button>
+      </div>
+
+      <div style="display:flex;gap:1.75rem;align-items:flex-start;">
+
+        <!-- LEFT: Camera -->
+        <div style="flex:0 0 380px;display:flex;flex-direction:column;gap:0.85rem;">
+          <div style="width:100%;height:280px;background:var(--bg4);border-radius:10px;overflow:hidden;border:2px dashed var(--border2);position:relative;">
+            <video id="wiVideo" autoplay playsinline style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+            <img id="wiPreview" alt="Guest photo" style="display:none;width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"/>
+            <canvas id="wiCanvas" style="display:none;"></canvas>
+            <div id="wiCameraError" style="display:none;flex-direction:column;align-items:center;justify-content:center;gap:0.5rem;color:var(--text2);font-size:0.82rem;padding:1rem;text-align:center;position:absolute;inset:0;background:var(--bg4);">
+              <span style="font-size:2rem;">📷</span>
+              <span id="wiCameraErrorMsg">Camera unavailable</span>
+              <label style="cursor:pointer;margin-top:0.5rem;" class="btn btn-outline btn-sm">
+                📁 Upload Photo Instead
+                <input type="file" id="wiFileInput" accept="image/*" capture="user" style="display:none;" onchange="loadUploadedPhoto(this)"/>
+              </label>
+            </div>
+          </div>
+          <div style="display:flex;gap:0.6rem;">
+            <button id="wiCaptureBtn" class="btn btn-primary" style="flex:1;" onclick="capturePhoto()">📷 Capture Photo</button>
+            <button id="wiRetakeBtn" class="btn btn-outline" style="flex:1;display:none;" onclick="retakePhoto()">↺ Retake</button>
+          </div>
+        </div>
+
+        <!-- RIGHT: Form -->
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:0.9rem;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:0.83rem;display:block;margin-bottom:0.35rem;color:var(--text2);">Guest Name *</label>
+            <input type="text" id="wiGuestName" placeholder="e.g. Rohit Verma" style="width:100%;" required/>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:0.83rem;display:block;margin-bottom:0.35rem;color:var(--text2);">Guest Phone</label>
+            <input type="tel" id="wiGuestPhone" placeholder="+91 98765 43210" style="width:100%;"/>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:0.83rem;display:block;margin-bottom:0.35rem;color:var(--text2);">Visiting (Flat / Resident) *</label>
+            <select id="wiMember" style="width:100%;" required>
+              <option value="">— Select Flat / Resident —</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:0.83rem;display:block;margin-bottom:0.35rem;color:var(--text2);">Purpose of Visit</label>
+            <input type="text" id="wiPurpose" placeholder="e.g. Delivery, Relative, Meeting" style="width:100%;"/>
+          </div>
+          <div style="display:flex;gap:0.75rem;padding-top:0.5rem;margin-top:auto;">
+            <button type="button" class="btn btn-outline" style="flex:1;" onclick="closeWalkIn()">Cancel</button>
+            <button type="button" id="wiSubmitBtn" class="btn btn-primary" style="flex:2;" onclick="submitWalkIn()">Notify Member →</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- STEP 2: Waiting for member -->
+    <div id="wiStep2" style="display:none">
+      <div class="scanner-header">
+        <h3>⏳ Awaiting Member Response</h3>
+        <button onclick="closeWalkIn()" class="modal-close">✕</button>
+      </div>
+      <div class="wi-waiting">
+        <div class="wi-timer-ring">
+          <svg width="90" height="90" viewBox="0 0 90 90">
+            <circle cx="45" cy="45" r="36" fill="none" stroke="var(--bg4)" stroke-width="6"/>
+            <circle id="wiProgressRing" cx="45" cy="45" r="36" fill="none"
+              stroke="var(--accent)" stroke-width="6"
+              stroke-linecap="round"
+              transform="rotate(-90 45 45)"
+              style="transition:stroke-dashoffset 1s linear;"/>
+          </svg>
+          <div class="wi-countdown-inner">
+            <span id="wiCountdown" class="wi-countdown">5:00</span>
+          </div>
+        </div>
+        <p class="wi-waiting-msg">Notification sent to the resident.<br/>Waiting for approval…</p>
+        <p class="wi-waiting-sub">Request expires in <strong id="wiCountdown"></strong></p>
+        <div class="wi-pulse-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Result -->
+    <div id="wiStep3" style="display:none">
+      <div class="scanner-header">
+        <h3>Walk-in Result</h3>
+        <button onclick="closeWalkIn()" class="modal-close">✕</button>
+      </div>
+      <div class="wi-result-wrap">
+        <div id="wiResultIcon" class="wi-result-icon"></div>
+        <h2 id="wiResultTitle" class="wi-result-title"></h2>
+        <p id="wiResultSub" class="wi-result-sub"></p>
+        <button class="btn btn-outline" onclick="closeWalkIn()">← Back to Dashboard</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

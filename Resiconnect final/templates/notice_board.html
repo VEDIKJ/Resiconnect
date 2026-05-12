@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Notice Board — ResiConnect{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Notice Board</h1>
+    <p class="page-sub">
+      {% if session.get('user_role') == 'admin' %}Administrator · All Notices
+      {% elif session.get('user_role') == 'member' %}Notices for Residents
+      {% else %}Notices for Security Staff
+      {% endif %}
+    </p>
+  </div>
+  {% if session.get('user_role') == 'admin' %}
+  <button class="btn btn-primary" onclick="openModal('addNoticeModal')">+ Post Notice</button>
+  {% endif %}
+</div>
+
+{% if notices %}
+<!-- URGENT BANNER (show topmost urgent notice prominently) -->
+{% set urgent_notices = notices | selectattr('urgency', 'equalto', 'urgent') | list %}
+{% if urgent_notices %}
+<div class="notice-urgent-banner">
+  <span class="notice-urgent-icon">🚨</span>
+  <div class="notice-urgent-content">
+    <strong>URGENT:</strong> {{ urgent_notices[0].title }}
+    <span class="notice-urgent-sub">{{ urgent_notices[0].body | truncate(120) }}</span>
+  </div>
+</div>
+{% endif %}
+
+<!-- NOTICE FILTER BAR -->
+<div class="filter-bar">
+  <select id="urgencyFilter" onchange="filterNotices()" class="filter-select">
+    <option value="">All Urgency Levels</option>
+    <option value="urgent">🚨 Urgent</option>
+    <option value="high">🔴 High</option>
+    <option value="normal">🔵 Normal</option>
+    <option value="low">⚪ Low</option>
+  </select>
+  {% if session.get('user_role') == 'admin' %}
+  <select id="audienceFilter" onchange="filterNotices()" class="filter-select">
+    <option value="">All Audiences</option>
+    <option value="all">Everyone</option>
+    <option value="member">Members Only</option>
+    <option value="security">Security Only</option>
+  </select>
+  {% endif %}
+  <input type="text" id="searchFilter" placeholder="Search notices..." class="filter-input" oninput="filterNotices()"/>
+</div>
+
+<div class="notices-grid" id="noticesGrid">
+  {% for n in notices %}
+  <div class="notice-card urgency-{{ n.urgency }}"
+       data-urgency="{{ n.urgency }}"
+       data-audience="{{ n.audience }}"
+       data-search="{{ n.title.lower() }} {{ n.body.lower() }}">
+
+    <!-- Card Top Bar -->
+    <div class="notice-card-top">
+      <div class="notice-badges">
+        <span class="notice-urgency-badge urgency-{{ n.urgency }}">
+          {% if n.urgency == 'urgent' %}🚨 Urgent
+          {% elif n.urgency == 'high' %}🔴 High
+          {% elif n.urgency == 'normal' %}🔵 Normal
+          {% else %}⚪ Low
+          {% endif %}
+        </span>
+        {% if session.get('user_role') == 'admin' %}
+        <span class="notice-audience-badge audience-{{ n.audience }}">
+          {% if n.audience == 'all' %}👥 Everyone
+          {% elif n.audience == 'member' %}🏠 Members
+          {% else %}🛡 Security
+          {% endif %}
+        </span>
+        {% endif %}
+      </div>
+      {% if session.get('user_role') == 'admin' %}
+      <div class="notice-admin-actions">
+        <button class="btn btn-xs btn-outline"
+          onclick="openEditModal({{ n.id }}, '{{ n.title | replace("'", "\\'") }}', '{{ n.body | replace("'", "\\'") | replace('\n', '\\n') }}', '{{ n.urgency }}', '{{ n.audience }}')">
+          ✏ Edit
+        </button>
+        <form method="POST" action="{{ url_for('delete_notice', nid=n.id) }}" style="display:inline"
+              onsubmit="return confirm('Remove this notice?')">
+          <button type="submit" class="btn btn-xs btn-danger">✕</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Notice Content -->
+    <h3 class="notice-title">{{ n.title }}</h3>
+    <p class="notice-body">{{ n.body }}</p>
+
+    <!-- Card Footer -->
+    <div class="notice-footer">
+      <span class="notice-author">📌 Posted by {{ n.author.name }}</span>
+      <span class="notice-date">{{ n.created_at.strftime('%d %b %Y, %I:%M %p') }}
+        {% if n.updated_at and n.updated_at != n.created_at %}
+        <em>(edited)</em>
+        {% endif %}
+      </span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">📋</div>
+  <p>No notices posted yet.</p>
+  {% if session.get('user_role') == 'admin' %}
+  <button class="btn btn-primary mt-2" onclick="openModal('addNoticeModal')">Post First Notice</button>
+  {% endif %}
+</div>
+{% endif %}
+
+
+{% if session.get('user_role') == 'admin' %}
+<!-- ADD NOTICE MODAL -->
+<div class="modal-overlay" id="addNoticeModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Post New Notice</h3>
+      <button class="modal-close" onclick="closeModal('addNoticeModal')">✕</button>
+    </div>
+    <form method="POST" action="{{ url_for('add_notice') }}" class="form">
+      <div class="form-group">
+        <label>Notice Title *</label>
+        <input type="text" name="title" placeholder="e.g. Water Supply Disruption on Saturday" required/>
+      </div>
+      <div class="form-group">
+        <label>Notice Body *</label>
+        <textarea name="body" rows="5" placeholder="Write the full notice here..." required style="resize:vertical;"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Urgency Level</label>
+          <select name="urgency">
+            <option value="low">⚪ Low — General info</option>
+            <option value="normal" selected>🔵 Normal — Standard notice</option>
+            <option value="high">🔴 High — Requires attention</option>
+            <option value="urgent">🚨 Urgent — Immediate action needed</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Send To</label>
+          <select name="audience">
+            <option value="all">👥 Everyone (Members + Security)</option>
+            <option value="member">🏠 Members Only</option>
+            <option value="security">🛡 Security Staff Only</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('addNoticeModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Post Notice →</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT NOTICE MODAL -->
+<div class="modal-overlay" id="editNoticeModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Edit Notice</h3>
+      <button class="modal-close" onclick="closeModal('editNoticeModal')">✕</button>
+    </div>
+    <form method="POST" id="editNoticeForm" class="form">
+      <div class="form-group">
+        <label>Notice Title *</label>
+        <input type="text" name="title" id="editTitle" required/>
+      </div>
+      <div class="form-group">
+        <label>Notice Body *</label>
+        <textarea name="body" id="editBody" rows="5" required style="resize:vertical;"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Urgency Level</label>
+          <select name="urgency" id="editUrgency">
+            <option value="low">⚪ Low</option>
+            <option value="normal">🔵 Normal</option>
+            <option value="high">🔴 High</option>
+            <option value="urgent">🚨 Urgent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Send To</label>
+          <select name="audience" id="editAudience">
+            <option value="all">👥 Everyone</option>
+            <option value="member">🏠 Members Only</option>
+            <option value="security">🛡 Security Staff Only</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('editNoticeModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes →</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openEditModal(id, title, body, urgency, audience) {
+  document.getElementById('editTitle').value = title;
+  document.getElementById('editBody').value = body.replace(/\\n/g, '\n');
+  document.getElementById('editUrgency').value = urgency;
+  document.getElementById('editAudience').value = audience;
+  document.getElementById('editNoticeForm').action = '/admin/notices/edit/' + id;
+  openModal('editNoticeModal');
+}
+
+function filterNotices() {
+  const urgency = document.getElementById('urgencyFilter')?.value || '';
+  const audience = document.getElementById('audienceFilter')?.value || '';
+  const search = document.getElementById('searchFilter')?.value.toLowerCase() || '';
+  document.querySelectorAll('.notice-card').forEach(card => {
+    const matchUrgency = !urgency || card.dataset.urgency === urgency;
+    const matchAudience = !audience || card.dataset.audience === audience;
+    const matchSearch = !search || card.dataset.search.includes(search);
+    card.style.display = (matchUrgency && matchAudience && matchSearch) ? '' : 'none';
+  });
+}
+</script>
+{% else %}
+<script>
+function filterNotices() {
+  const urgency = document.getElementById('urgencyFilter')?.value || '';
+  const search = document.getElementById('searchFilter')?.value.toLowerCase() || '';
+  document.querySelectorAll('.notice-card').forEach(card => {
+    const matchUrgency = !urgency || card.dataset.urgency === urgency;
+    const matchSearch = !search || card.dataset.search.includes(search);
+    card.style.display = (matchUrgency && matchSearch) ? '' : 'none';
+  });
+}
+</script>
+{% endif %}
+
+{% endblock %}

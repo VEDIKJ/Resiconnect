@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}Member Dashboard — ResiConnect{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Guest Passes</h1>
+    <p class="page-sub">Flat {{ user.flat_number }} · {{ user.name }}</p>
+  </div>
+  <div style="display:flex;gap:0.75rem;align-items:center;">
+    <button class="btn btn-outline" id="walkInNotifBtn" onclick="openWalkInNotifs()" style="display:none;position:relative;">
+      🚶 Walk-in Requests
+      <span class="wi-badge" id="walkInBadge">0</span>
+    </button>
+    <button class="btn btn-primary" onclick="openModal('createPassModal')">+ New Pass</button>
+  </div>
+</div>
+
+<!-- WALK-IN NOTIFICATION MODAL -->
+<div class="modal-overlay" id="walkInNotifModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>🚶 Walk-in Guest Requests</h3>
+      <button class="modal-close" onclick="closeModal('walkInNotifModal')">✕</button>
+    </div>
+    <div id="walkInNotifList" style="display:flex;flex-direction:column;gap:1rem;max-height:70vh;overflow-y:auto;padding:0.25rem 0;">
+      <p style="color:var(--text2);text-align:center;padding:2rem;">Loading requests…</p>
+    </div>
+  </div>
+</div>
+
+<script>
+let wiRequests = [];
+
+async function pollWalkInRequests() {
+  try {
+    const res = await fetch('/api/walkin/pending');
+    const data = await res.json();
+    wiRequests = data.requests || [];
+    const btn = document.getElementById('walkInNotifBtn');
+    const badge = document.getElementById('walkInBadge');
+    if (wiRequests.length > 0) {
+      btn.style.display = 'inline-flex';
+      badge.textContent = wiRequests.length;
+      // Auto-open if new request arrived
+      if (document.getElementById('walkInNotifModal').style.display !== 'flex') {
+        btn.classList.add('wi-pulse-btn');
+        openWalkInNotifs();
+      }
+    } else {
+      btn.style.display = 'none';
+      closeModal('walkInNotifModal');
+    }
+  } catch(e) {}
+}
+
+function openWalkInNotifs() {
+  document.getElementById('walkInNotifBtn').classList.remove('wi-pulse-btn');
+  renderWalkInList();
+  openModal('walkInNotifModal');
+}
+
+function renderWalkInList() {
+  const list = document.getElementById('walkInNotifList');
+  if (wiRequests.length === 0) {
+    list.innerHTML = '<p style="color:var(--text2);text-align:center;padding:2rem;">No pending walk-in requests.</p>';
+    return;
+  }
+  list.innerHTML = wiRequests.map(r => `
+    <div class="wi-notif-card" id="wiCard-${r.id}">
+      <div class="wi-notif-top">
+        <div class="wi-notif-photo-wrap">
+          ${r.photo_data
+            ? `<img src="${r.photo_data}" class="wi-notif-photo" alt="Guest photo"/>`
+            : `<div class="wi-notif-photo-placeholder">${r.guest_name[0].toUpperCase()}</div>`
+          }
+        </div>
+        <div class="wi-notif-info">
+          <div class="wi-notif-name">${r.guest_name}</div>
+          ${r.guest_phone ? `<div class="wi-notif-meta">📞 ${r.guest_phone}</div>` : ''}
+          ${r.purpose ? `<div class="wi-notif-meta">🎯 ${r.purpose}</div>` : ''}
+          <div class="wi-notif-meta">🕐 Arrived at ${r.created_at}</div>
+        </div>
+        <div class="wi-timer-chip" id="wiTimer-${r.id}">${formatExpiry(r.expires_in)}</div>
+      </div>
+      <div class="wi-notif-prompt">Security is requesting your approval to let this guest in.</div>
+      <div class="wi-notif-actions">
+        <button class="btn btn-danger" onclick="respondWalkIn(${r.id}, 'deny')">✕ Deny Entry</button>
+        <button class="btn btn-success" onclick="respondWalkIn(${r.id}, 'approve')">✓ Allow Entry</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Start per-card countdowns
+  wiRequests.forEach(r => startCardTimer(r.id, r.expires_in));
+}
+
+function formatExpiry(secs) {
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+const cardTimers = {};
+function startCardTimer(id, secs) {
+  clearInterval(cardTimers[id]);
+  let remaining = secs;
+  cardTimers[id] = setInterval(() => {
+    remaining--;
+    const el = document.getElementById(`wiTimer-${id}`);
+    if (el) el.textContent = formatExpiry(Math.max(0, remaining));
+    if (remaining <= 0) clearInterval(cardTimers[id]);
+  }, 1000);
+}
+
+async function respondWalkIn(reqId, action) {
+  const card = document.getElementById(`wiCard-${reqId}`);
+  if (card) {
+    card.style.opacity = '0.5';
+    card.style.pointerEvents = 'none';
+  }
+  try {
+    const res = await fetch(`/api/walkin/respond/${reqId}/${action}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      // Remove from list
+      wiRequests = wiRequests.filter(r => r.id !== reqId);
+      renderWalkInList();
+      if (wiRequests.length === 0) {
+        document.getElementById('walkInNotifBtn').style.display = 'none';
+        closeModal('walkInNotifModal');
+      } else {
+        document.getElementById('walkInBadge').textContent = wiRequests.length;
+      }
+    }
+  } catch(e) {
+    if (card) { card.style.opacity = '1'; card.style.pointerEvents = ''; }
+    alert('Error responding. Please try again.');
+  }
+}
+
+// Poll every 5 seconds
+pollWalkInRequests();
+setInterval(pollWalkInRequests, 5000);
+</script>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-num">{{ active_passes }}</div>
+    <div class="stat-label">Active Passes</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ passes | selectattr('status', 'equalto', 'approved') | list | length }}</div>
+    <div class="stat-label">Entries Approved</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ passes | length }}</div>
+    <div class="stat-label">Total Created</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">Recent Passes</h2>
+  {% if passes %}
+  <div class="passes-grid">
+    {% for p in passes %}
+    <div class="pass-card status-{{ p.status }}">
+      <div class="pass-card-top">
+        <div class="pass-guest-init">{{ p.guest_name[0].upper() }}</div>
+        <div class="pass-info">
+          <div class="pass-guest-name">{{ p.guest_name }}</div>
+          {% if p.guest_phone %}<div class="pass-phone">{{ p.guest_phone }}</div>{% endif %}
+        </div>
+        <span class="status-badge {{ p.status }}">{{ p.status }}</span>
+      </div>
+      {% if p.purpose %}
+      <div class="pass-purpose">{{ p.purpose }}</div>
+      {% endif %}
+      <div class="pass-meta">
+        <span>⏱ Valid until {{ p.valid_until.strftime('%d %b, %I:%M %p') }}</span>
+        <span>{{ p.created_at.strftime('%d %b %Y') }}</span>
+      </div>
+      <div class="pass-actions">
+        <a href="{{ url_for('view_pass', token=p.token) }}" class="btn btn-sm btn-outline">View QR</a>
+        {% if p.status == 'pending' %}
+        <form method="POST" action="{{ url_for('revoke_pass', pass_id=p.id) }}" style="display:inline">
+          <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Revoke this pass?')">Revoke</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🎫</div>
+    <p>No guest passes yet. Create one to get started.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- CREATE PASS MODAL -->
+<div class="modal-overlay" id="createPassModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Create Guest Pass</h3>
+      <button class="modal-close" onclick="closeModal('createPassModal')">✕</button>
+    </div>
+    <form method="POST" action="{{ url_for('create_pass') }}" class="form">
+      <div class="form-group">
+        <label>Guest Name *</label>
+        <input type="text" name="guest_name" placeholder="e.g. Priya Mehta" required/>
+      </div>
+      <div class="form-group">
+        <label>Guest Phone</label>
+        <input type="tel" name="guest_phone" placeholder="+91 98765 43210"/>
+      </div>
+      <div class="form-group">
+        <label>Purpose of Visit</label>
+        <input type="text" name="purpose" placeholder="e.g. Dinner, Delivery, Meeting"/>
+      </div>
+      <div class="form-group">
+        <label>Pass Valid For</label>
+        <select name="valid_hours">
+          <option value="4">4 Hours</option>
+          <option value="8">8 Hours</option>
+          <option value="24" selected>24 Hours</option>
+          <option value="48">48 Hours</option>
+          <option value="72">3 Days</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('createPassModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Generate Pass →</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
